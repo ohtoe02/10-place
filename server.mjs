@@ -1,8 +1,8 @@
 import * as path from "path";
-import express from "express";
+import express, {response} from "express";
 import WebSocket from "ws";
 
-const port = process.env.PORT || 5000;
+const port = process.env.PORT || 3000;
 
 const apiKeys = new Set([
   "4a83051d-aad4-483e-8fc8-693273d15dc7",
@@ -31,17 +31,19 @@ const colors = [
 ];
 
 const size = 256;
-// place(x, y) := place[x + y * size]
 const place = Array(size * size).fill(null);
-for (const [colorIndex, colorValue] of colors.entries()) {
-  for (let dx = 0; dx < size; dx++) {
+for (const [colorIndex, colorValue] of colors.entries())
+  for (let dx = 0; dx < size; dx++)
     place[dx + colorIndex * size] = colorValue;
-  }
-}
+
 
 const app = express();
 
 app.use(express.static(path.join(process.cwd(), "client")));
+
+app.get("/api/getColors", (req, res) => {
+  res.json(colors);
+});
 
 app.get("/*", (_, res) => {
   res.send("Place(holder)");
@@ -53,10 +55,54 @@ const wss = new WebSocket.Server({
   noServer: true,
 });
 
-server.on("upgrade", (req, socket, head) => {
-  const url = new URL(req.url, req.headers.origin);
-  console.log(url);
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit("connection", ws, req);
+
+
+const insertIntoPlace = (payload) => {
+  const possibleCoordinate = size * payload.y + payload.x;
+  if (!colors.includes(payload.color) || place[possibleCoordinate] != null)
+    return
+
+  place[possibleCoordinate] = payload.color;
+  wss.clients.forEach(function each(client) {
+    if (client.readyState === WebSocket.OPEN)
+      sendField(client);
   });
+}
+
+const sendField = (ws) => {
+  const result = {
+    type: 'place', // тип сообщения
+    payload: {
+      place,
+    }
+  };
+
+  ws.send(JSON.stringify(result));
+}
+
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url, req.headers.origin);
+  const userApiKey = url.searchParams.get('apiKey');
+  if (!apiKeys.has(userApiKey)) {
+    socket.destroy();
+    return;
+  }
+
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
+  });
+});
+
+wss.on('connection', function connection(ws) {
+  ws.on('message', function message(data) {
+    console.log('received: %s', data);
+
+    const parsedData = JSON.parse(data);
+    switch (parsedData.type) {
+      case ('click'):
+        insertIntoPlace(parsedData.payload)
+    }
+  });
+
+  sendField(ws);
 });
