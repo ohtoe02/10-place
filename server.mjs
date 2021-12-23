@@ -1,5 +1,5 @@
 import * as path from "path";
-import express, {response} from "express";
+import express, {request, response} from "express";
 import WebSocket from "ws";
 
 const port = process.env.PORT || 3000;
@@ -55,14 +55,15 @@ const wss = new WebSocket.Server({
   noServer: true,
 });
 
-
+const CoordinateAndColorWrong = (x, y, color) => {
+  return !(x >= 0 && x <= size && y >= 0 && y <= size && colors.includes(color));
+}
 
 const insertIntoPlace = (payload) => {
-  const possibleCoordinate = size * payload.y + payload.x;
-  if (!colors.includes(payload.color) || place[possibleCoordinate] != null)
+  if (CoordinateAndColorWrong(payload.x, payload.y, payload.color))
     return
 
-  place[possibleCoordinate] = payload.color;
+  place[size * payload.y + payload.x] = payload.color;
   wss.clients.forEach(function each(client) {
     if (client.readyState === WebSocket.OPEN)
       sendField(client);
@@ -84,7 +85,7 @@ server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, req.headers.origin);
   const userApiKey = url.searchParams.get('apiKey');
   if (!apiKeys.has(userApiKey)) {
-    socket.destroy();
+    req.destroy(new Error('Incorrect API key'));
     return;
   }
 
